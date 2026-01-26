@@ -697,6 +697,10 @@ async def update_application_status(application_id: str, status_data: StatusUpda
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     
+    app = await db.visa_applications.find_one({"application_id": application_id}, {"_id": 0})
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+    
     update_data = {
         "status": status_data.status,
         "updated_at": datetime.now(timezone.utc).isoformat()
@@ -713,7 +717,14 @@ async def update_application_status(application_id: str, status_data: StatusUpda
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Application not found")
     
-    return {"message": "Status updated successfully"}
+    updated_app = await db.visa_applications.find_one({"application_id": application_id}, {"_id": 0})
+    
+    if status_data.status == "approved":
+        asyncio.create_task(send_approval_email(updated_app))
+    elif status_data.status == "rejected":
+        asyncio.create_task(send_rejection_email(updated_app, status_data.notes or ""))
+    
+    return {"message": "Status updated successfully", "email_sent": status_data.status in ["approved", "rejected"]}
 
 app.include_router(api_router)
 
