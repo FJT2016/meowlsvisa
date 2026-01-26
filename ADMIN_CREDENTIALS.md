@@ -14,7 +14,7 @@ All admin accounts use the same password: **admin123**
    - Email: `ftareen@dohacollege.com.qa`
    - Password: `admin123`
 
-3. **Salma Dani**
+3. **S Almadani**
    - Email: `salmadani@dohacollege.com.qa`
    - Password: `admin123`
 
