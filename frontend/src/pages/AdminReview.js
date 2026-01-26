@@ -257,6 +257,12 @@ const AdminReview = () => {
             <div className="bg-white rounded-xl border border-slate-200 p-6 sticky top-6">
               <h2 className="text-xl font-semibold text-slate-900 mb-6">Update Status</h2>
 
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+                <p className="text-xs text-blue-800">
+                  <strong>📧 Auto Email Notifications:</strong> When you approve/reject, the applicant automatically receives an email. Approved applications include an AI-generated visa document PDF.
+                </p>
+              </div>
+
               <div className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">
