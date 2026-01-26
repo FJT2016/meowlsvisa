@@ -80,8 +80,17 @@ const AdminReview = () => {
       );
 
       if (response.ok) {
-        toast.success('Application status updated successfully');
-        navigate('/admin');
+        const result = await response.json();
+        if (result.email_sent) {
+          if (selectedStatus === 'approved') {
+            toast.success('Application approved! ✅ Email with visa document sent to applicant.');
+          } else if (selectedStatus === 'rejected') {
+            toast.success('Application rejected. 📧 Notification email sent to applicant.');
+          }
+        } else {
+          toast.success('Application status updated successfully');
+        }
+        setTimeout(() => navigate('/admin'), 1500);
       } else {
         const error = await response.json();
         throw new Error(error.detail || 'Failed to update status');
