@@ -37,21 +37,18 @@ class MeowlsVisaAPITester:
         url = f"{self.base_url}/api/{endpoint}"
         test_headers = {'Content-Type': 'application/json'}
         
-        if self.session_token:
-            test_headers['Authorization'] = f'Bearer {self.session_token}'
-        
         if headers:
             test_headers.update(headers)
 
         try:
             if method == 'GET':
-                response = requests.get(url, headers=test_headers, timeout=10)
+                response = self.session.get(url, headers=test_headers, timeout=10)
             elif method == 'POST':
-                response = requests.post(url, json=data, headers=test_headers, timeout=10)
+                response = self.session.post(url, json=data, headers=test_headers, timeout=10)
             elif method == 'PUT':
-                response = requests.put(url, json=data, headers=test_headers, timeout=10)
+                response = self.session.put(url, json=data, headers=test_headers, timeout=10)
             elif method == 'DELETE':
-                response = requests.delete(url, headers=test_headers, timeout=10)
+                response = self.session.delete(url, headers=test_headers, timeout=10)
 
             success = response.status_code == expected_status
             details = f"Status: {response.status_code}"
