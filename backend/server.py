@@ -90,8 +90,7 @@ async def get_current_user(request: Request, session_token: Optional[str] = Cook
     token = session_token
     if not token:
         auth_header = request.headers.get('Authorization')
-        if auth_header and auth_header.startswith('Bearer '):
-            token = auth_header.split(' ')[1]
+        if auth_header and auth_header.startswith('Bearer '):\n            token = auth_header.split(' ')[1]
     
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -116,6 +115,267 @@ async def get_current_user(request: Request, session_token: Optional[str] = Cook
         user_doc['created_at'] = datetime.fromisoformat(user_doc['created_at'])
     
     return User(**user_doc)
+
+async def generate_visa_document_with_ai(application: dict) -> str:
+    """Generate visa document content using AI"""
+    try:
+        chat = LlmChat(
+            api_key=OPENAI_API_KEY,
+            session_id=f"visa_{application['application_id']}",
+            system_message="You are an official document generator for the Republic of Meowls Immigration Department. Generate formal, professional visa documents."
+        ).with_model("openai", "gpt-4o")
+        
+        user_message = UserMessage(
+            text=f"""Generate a professional visa approval document with the following details:
+
+Applicant Name: {application['personal_info']['full_name']}
+Nationality: {application['personal_info']['nationality']}
+Passport Number: {application['personal_info']['passport_number']}
+Visa Type: {application['visa_type'].title()}
+Purpose: {application['travel_details']['purpose']}
+Arrival Date: {application['travel_details']['arrival_date']}
+Departure Date: {application['travel_details']['departure_date']}
+Application ID: {application['application_id']}
+
+Create a formal visa approval letter that includes:
+1. Official letterhead greeting
+2. Approval statement
+3. Visa validity details
+4. Important notes about payment at immigration
+5. Professional closing
+
+Keep it concise and professional - max 300 words."""
+        )
+        
+        response = await chat.send_message(user_message)
+        return response
+    except Exception as e:
+        logger.error(f"AI generation failed: {str(e)}")
+        return f"""REPUBLIC OF MEOWLS
+IMMIGRATION DEPARTMENT
+
+VISA APPROVAL NOTICE
+
+Application ID: {application['application_id']}
+Date: {datetime.now(timezone.utc).strftime('%B %d, %Y')}
+
+Dear {application['personal_info']['full_name']},
+
+We are pleased to inform you that your {application['visa_type'].title()} visa application has been APPROVED.
+
+Applicant Details:
+- Name: {application['personal_info']['full_name']}
+- Nationality: {application['personal_info']['nationality']}
+- Passport: {application['personal_info']['passport_number']}
+- Visa Type: {application['visa_type'].title()}
+
+Travel Details:
+- Arrival: {application['travel_details']['arrival_date']}
+- Departure: {application['travel_details']['departure_date']}
+- Purpose: {application['travel_details']['purpose']}
+
+IMPORTANT: Please proceed to immigration upon arrival. Visa fee payment will be collected at the port of entry.
+
+Welcome to Meowls!
+
+Immigration Department
+Republic of Meowls"""
+
+def create_visa_pdf(content: str, application: dict) -> BytesIO:
+    """Create a PDF visa document"""
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter, topMargin=0.5*inch, bottomMargin=0.5*inch)
+    
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=colors.HexColor('#0F172A'),
+        spaceAfter=30,
+        alignment=TA_CENTER,
+        fontName='Helvetica-Bold'
+    )
+    
+    header_style = ParagraphStyle(
+        'Header',
+        parent=styles['Normal'],
+        fontSize=16,
+        textColor=colors.HexColor('#D97706'),
+        spaceAfter=20,
+        alignment=TA_CENTER,
+        fontName='Helvetica-Bold'
+    )
+    
+    body_style = ParagraphStyle(
+        'Body',
+        parent=styles['Normal'],
+        fontSize=11,
+        textColor=colors.HexColor('#334155'),
+        spaceAfter=12,
+        alignment=TA_LEFT,
+        fontName='Helvetica'
+    )
+    
+    story = []
+    
+    story.append(Paragraph("REPUBLIC OF MEOWLS", title_style))
+    story.append(Paragraph("Official e-Visa Document", header_style))
+    story.append(Spacer(1, 0.3*inch))
+    
+    for line in content.split('\n'):
+        if line.strip():
+            story.append(Paragraph(line, body_style))
+    
+    story.append(Spacer(1, 0.5*inch))
+    
+    data = [
+        ['Application ID:', application['application_id']],
+        ['Issue Date:', datetime.now(timezone.utc).strftime('%B %d, %Y')],
+        ['Status:', 'APPROVED']
+    ]
+    
+    table = Table(data, colWidths=[2*inch, 4*inch])
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#F1F5F9')),
+        ('TEXTCOLOR', (0, 0), (-1, -1), colors.HexColor('#0F172A')),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+        ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#E2E8F0'))
+    ]))
+    
+    story.append(table)
+    
+    doc.build(story)
+    buffer.seek(0)
+    return buffer
+
+async def send_approval_email(application: dict):
+    """Send visa approval email with AI-generated document"""
+    try:
+        visa_content = await generate_visa_document_with_ai(application)
+        pdf_buffer = create_visa_pdf(visa_content, application)
+        
+        html_content = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <div style="background-color: #0F172A; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
+                    <h1 style="margin: 0; font-size: 28px;">🎉 Visa Approved!</h1>
+                    <p style="margin: 10px 0 0 0; font-size: 16px; color: #D97706;">Republic of Meowls Immigration</p>
+                </div>
+                
+                <div style="background-color: #f8fafc; padding: 30px; border-radius: 0 0 8px 8px;">
+                    <p style="font-size: 16px; margin-bottom: 20px;">Dear <strong>{application['personal_info']['full_name']}</strong>,</p>
+                    
+                    <p style="font-size: 14px; margin-bottom: 15px;">Congratulations! Your visa application for the Republic of Meowls has been <strong style="color: #166534;">APPROVED</strong>.</p>
+                    
+                    <div style="background-color: white; padding: 20px; border-left: 4px solid #D97706; margin: 20px 0;">
+                        <p style="margin: 5px 0;"><strong>Application ID:</strong> {application['application_id']}</p>
+                        <p style="margin: 5px 0;"><strong>Visa Type:</strong> {application['visa_type'].title()}</p>
+                        <p style="margin: 5px 0;"><strong>Travel Dates:</strong> {application['travel_details']['arrival_date']} to {application['travel_details']['departure_date']}</p>
+                    </div>
+                    
+                    <p style="font-size: 14px; margin-bottom: 15px;">Please find your official e-Visa document attached to this email. Print a copy and present it at immigration upon arrival.</p>
+                    
+                    <div style="background-color: #fef3c7; padding: 15px; border-radius: 6px; margin: 20px 0;">
+                        <p style="margin: 0; font-size: 13px; color: #92400e;"><strong>⚠️ Important:</strong> Visa fee payment will be collected at the port of entry. Please have payment ready in cash or card.</p>
+                    </div>
+                    
+                    <p style="font-size: 14px; margin-top: 20px;">We look forward to welcoming you to Meowls!</p>
+                    
+                    <p style="font-size: 13px; color: #666; margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd;">
+                        Best regards,<br>
+                        <strong>Immigration Department</strong><br>
+                        Republic of Meowls
+                    </p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        params = {
+            "from": SENDER_EMAIL,
+            "to": [application['personal_info']['email']],
+            "subject": "🎉 Your Meowls Visa is APPROVED!",
+            "html": html_content,
+            "attachments": [{
+                "filename": f"meowls_visa_{application['application_id']}.pdf",
+                "content": list(pdf_buffer.getvalue())
+            }]
+        }
+        
+        email = await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"Approval email sent to {application['personal_info']['email']}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send approval email: {str(e)}")
+        return False
+
+async def send_rejection_email(application: dict, notes: str = ""):
+    """Send kind visa rejection email"""
+    try:
+        html_content = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <div style="background-color: #0F172A; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0;">
+                    <h1 style="margin: 0; font-size: 28px;">Visa Application Update</h1>
+                    <p style="margin: 10px 0 0 0; font-size: 16px; color: #D97706;">Republic of Meowls Immigration</p>
+                </div>
+                
+                <div style="background-color: #f8fafc; padding: 30px; border-radius: 0 0 8px 8px;">
+                    <p style="font-size: 16px; margin-bottom: 20px;">Dear <strong>{application['personal_info']['full_name']}</strong>,</p>
+                    
+                    <p style="font-size: 14px; margin-bottom: 15px;">Thank you for your interest in visiting the Republic of Meowls. We have carefully reviewed your visa application (ID: <strong>{application['application_id']}</strong>).</p>
+                    
+                    <div style="background-color: #fee2e2; padding: 20px; border-left: 4px solid #dc2626; margin: 20px 0; border-radius: 4px;">
+                        <p style="margin: 0; font-size: 14px; color: #991b1b;">Unfortunately, we are unable to approve your visa application at this time.</p>
+                    </div>
+                    
+                    {f'<div style="background-color: white; padding: 15px; border-radius: 6px; margin: 20px 0;"><p style="margin: 0; font-size: 13px;"><strong>Reason:</strong> {notes}</p></div>' if notes else ''}
+                    
+                    <p style="font-size: 14px; margin-bottom: 15px;">We understand this may be disappointing news. However, we encourage you to:</p>
+                    
+                    <ul style="font-size: 14px; margin-bottom: 15px;">
+                        <li>Review the requirements for your visa category</li>
+                        <li>Ensure all documentation is complete and accurate</li>
+                        <li>Consider reapplying once any issues have been addressed</li>
+                    </ul>
+                    
+                    <div style="background-color: #dbeafe; padding: 15px; border-radius: 6px; margin: 20px 0;">
+                        <p style="margin: 0; font-size: 13px; color: #1e40af;"><strong>ℹ️ Need Help?</strong> Contact our visa support team at visa@meowls.gov for guidance on your next steps.</p>
+                    </div>
+                    
+                    <p style="font-size: 14px; margin-top: 20px;">We appreciate your understanding and hope to welcome you to Meowls in the future.</p>
+                    
+                    <p style="font-size: 13px; color: #666; margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd;">
+                        Best regards,<br>
+                        <strong>Immigration Department</strong><br>
+                        Republic of Meowls
+                    </p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        params = {
+            "from": SENDER_EMAIL,
+            "to": [application['personal_info']['email']],
+            "subject": "Meowls Visa Application Update",
+            "html": html_content
+        }
+        
+        email = await asyncio.to_thread(resend.Emails.send, params)
+        logger.info(f"Rejection email sent to {application['personal_info']['email']}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send rejection email: {str(e)}")
+        return False
 
 @api_router.post("/auth/register")
 async def register(user_data: UserRegister, response: Response):
