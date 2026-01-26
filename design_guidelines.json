@@ -1,0 +1,191 @@
+{
+  "design_system": {
+    "identity": {
+      "name": "Meowls e-Visa Portal",
+      "tone": "Official, Secure, Welcoming, Bureaucratic Elegance",
+      "description": "A government portal that balances authority with modern usability. It avoids the 'startup' look in favor of a 'better government' aesthetic.",
+      "principles": [
+        "Clarity over Creativity: Forms must be boringly predictable.",
+        "Trust through Typography: Serif headings for authority.",
+        "Feedback is King: Every action has a clear state change.",
+        "Accessibility First: High contrast, clear labels, keyboard navigable."
+      ]
+    },
+    "typography": {
+      "font_family": {
+        "headings": "Merriweather, serif",
+        "body": "Inter, sans-serif",
+        "mono": "JetBrains Mono, monospace"
+      },
+      "scale": {
+        "h1": "text-4xl md:text-5xl font-bold tracking-tight",
+        "h2": "text-3xl md:text-4xl font-semibold tracking-tight",
+        "h3": "text-2xl font-semibold",
+        "body_lg": "text-lg leading-relaxed",
+        "body_base": "text-base leading-relaxed",
+        "caption": "text-sm text-muted-foreground",
+        "label": "text-xs font-medium uppercase tracking-wider text-muted-foreground"
+      }
+    },
+    "colors": {
+      "palette": {
+        "primary": {
+          "name": "Diplomatic Blue",
+          "hex": "#0F172A",
+          "tailwind": "bg-slate-900 text-white"
+        },
+        "secondary": {
+          "name": "Official Gold",
+          "hex": "#D97706",
+          "tailwind": "text-amber-600 border-amber-600"
+        },
+        "background": {
+          "name": "Paper White",
+          "hex": "#F8FAFC",
+          "tailwind": "bg-slate-50"
+        },
+        "surface": {
+          "name": "Clean White",
+          "hex": "#FFFFFF",
+          "tailwind": "bg-white"
+        },
+        "accent": {
+          "name": "Stamp Red",
+          "hex": "#DC2626",
+          "tailwind": "text-red-600 bg-red-50"
+        },
+        "success": {
+          "name": "Approved Green",
+          "hex": "#166534",
+          "tailwind": "text-green-800 bg-green-50"
+        }
+      },
+      "theme_strategy": "Light Mode Only (Government Standard). Dark mode is optional but default should be Light for trust."
+    },
+    "layout": {
+      "spacing": {
+        "container_padding": "p-6 md:p-12",
+        "section_gap": "gap-8 md:gap-16",
+        "form_gap": "space-y-6"
+      },
+      "grids": {
+        "landing": "grid grid-cols-1 md:grid-cols-12 gap-8 (Mode A: Tetris)",
+        "dashboard": "grid grid-cols-1 md:grid-cols-4 gap-6 (Mode B: High Density)",
+        "form": "max-w-3xl mx-auto space-y-8"
+      },
+      "containers": {
+        "card": "bg-white border border-slate-200 shadow-sm rounded-lg p-6",
+        "panel": "bg-slate-50 border border-slate-200 rounded-xl p-8"
+      }
+    },
+    "components": {
+      "buttons": {
+        "primary": "bg-slate-900 text-white hover:bg-slate-800 rounded-md px-6 py-3 font-medium transition-all shadow-sm hover:shadow-md",
+        "secondary": "bg-white text-slate-900 border border-slate-300 hover:bg-slate-50 rounded-md px-6 py-3 font-medium transition-all",
+        "ghost": "text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-md px-4 py-2"
+      },
+      "inputs": {
+        "default": "flex h-12 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+        "error": "border-red-500 focus-visible:ring-red-500"
+      },
+      "cards": {
+        "feature": "group relative overflow-hidden rounded-xl border border-slate-200 bg-white p-8 hover:border-slate-300 transition-all hover:shadow-lg",
+        "status": "flex items-center justify-between p-4 rounded-lg border"
+      }
+    },
+    "visual_enhancers": {
+      "shadows": "shadow-sm for cards, shadow-md for dropdowns, shadow-xl for modals",
+      "borders": "1px solid #E2E8F0 (slate-200)",
+      "radius": "rounded-md (6px) for inputs/buttons, rounded-xl (12px) for cards",
+      "textures": "Subtle noise texture on the main background to give a 'paper' feel."
+    }
+  },
+  "assets": {
+    "images": [
+      {
+        "category": "hero",
+        "url": "https://images.unsplash.com/photo-1750155680590-328cdc01709e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHwxfHxtYWplc3RpYyUyMG1vdW50YWluJTIwbGFuZHNjYXBlJTIwbmF0dXJlfGVufDB8fHx8MTc2OTQzNDEzNnww&ixlib=rb-4.1.0&q=85",
+        "description": "Majestic Mountain Lake - The scenic beauty of Meowls",
+        "usage": "Homepage Hero Background"
+      },
+      {
+        "category": "feature",
+        "url": "https://images.unsplash.com/photo-1758928807847-ed94f9ed3cad?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwxfHxwYXNzcG9ydCUyMHZpc2ElMjBkb2N1bWVudHMlMjB0cmF2ZWx8ZW58MHx8fHwxNzY5NDM0MTQwfDA&ixlib=rb-4.1.0&q=85",
+        "description": "Man looking at passport",
+        "usage": "Application Process Section"
+      },
+      {
+        "category": "feature",
+        "url": "https://images.unsplash.com/photo-1715265869954-3db4b23fac48?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjV8MHwxfHNlYXJjaHw0fHxhaXJwb3J0JTIwaW1taWdyYXRpb24lMjB0cmF2ZWxlcnxlbnwwfHx8fDE3Njk0MzQxNDF8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Travelers at airport",
+        "usage": "Immigration/Arrival Section"
+      }
+    ],
+    "icons": {
+      "library": "lucide-react",
+      "style": "Stroke width 1.5px, size 20px or 24px"
+    }
+  },
+  "pages": {
+    "home": {
+      "structure": [
+        "Hero Section: 'Welcome to Meowls e-Visa Portal' with background image and clear 'Apply Now' CTA.",
+        "Info Grid: 3-column grid explaining Visa Types (Tourist, Business, Medical).",
+        "Process Steps: Horizontal timeline showing 'Apply -> Upload -> Track -> Fly'.",
+        "Footer: Official government links and disclaimers."
+      ]
+    },
+    "auth": {
+      "structure": [
+        "Split Layout: Left side form (Login/Register), Right side image (Scenic Meowls).",
+        "Google OAuth Button: Prominent, top of form.",
+        "Email/Password: Clean inputs with validation."
+      ]
+    },
+    "application_form": {
+      "structure": [
+        "Stepper: Top progress bar (Personal -> Travel -> Documents -> Review).",
+        "Form Layout: Single column max-width-3xl for focus.",
+        "Document Upload: Drag and drop zones with preview.",
+        "Auto-save: Visual indicator 'Draft saved'."
+      ]
+    },
+    "dashboard": {
+      "structure": [
+        "Welcome Header: 'Hello, [Name]'.",
+        "Stats Cards: 'Active Applications', 'Approved', 'Pending'.",
+        "Application List: Table with Status Badges (Pending=Yellow, Approved=Green, Rejected=Red)."
+      ]
+    },
+    "admin": {
+      "structure": [
+        "Sidebar Navigation.",
+        "Data Table: Dense list of applications with filters.",
+        "Review Modal: Split screen (Application details left, Document preview right)."
+      ]
+    }
+  },
+  "instructions_to_main_agent": [
+    "Use 'Merriweather' for all Headings (h1-h3) to give that official government look.",
+    "Use 'Inter' for all body text and form inputs for maximum readability.",
+    "Implement the 'Diplomatic Blue' (#0F172A) as the primary brand color.",
+    "Ensure all forms have client-side validation with clear error messages.",
+    "Use Shadcn UI components for complex interactive elements (Select, Datepicker, Dialog).",
+    "Do NOT use gradients for backgrounds. Use solid colors or subtle textures.",
+    "Ensure the 'Status Tracker' is visually distinct and easy to understand.",
+    "For the Admin Panel, prioritize information density (Mode B grid)."
+  ],
+  "universal_guidelines": [
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "Use glass-morphism effects with backdrop filters (12-24px blur) for sticky headers only.",
+    "You MUST NOT apply universal transition. Eg: 'transition: all'.",
+    "You MUST NOT center align the app container.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations.",
+    "NEVER use AI assistant Emoji characters for icons.",
+    "Every interaction needs micro-animations - hover states, transitions.",
+    "Use 2-3x more spacing than feels comfortable.",
+    "Subtle grain textures, noise overlays, custom cursors, selection states, and loading animations: separates good from extraordinary."
+  ]
+}
