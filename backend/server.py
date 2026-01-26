@@ -1,72 +1,446 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Cookie, Response, Request
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
+from pydantic import BaseModel, Field, ConfigDict, EmailStr
+from typing import List, Optional
 import uuid
-from datetime import datetime, timezone
-
+from datetime import datetime, timezone, timedelta
+import bcrypt
+import base64
+import requests
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# Create the main app without a prefix
 app = FastAPI()
-
-# Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
+class User(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    user_id: str
+    email: str
+    name: str
+    picture: Optional[str] = None
+    role: str = "user"
+    created_at: datetime
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
+class UserRegister(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class SessionData(BaseModel):
+    session_id: str
+
+class VisaApplication(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    application_id: str
+    user_id: str
+    visa_type: str
+    status: str
+    personal_info: dict
+    travel_details: dict
+    documents: dict
+    created_at: datetime
+    updated_at: datetime
+
+class ApplicationCreate(BaseModel):
+    visa_type: str
+    personal_info: dict
+    travel_details: dict
+
+class StatusUpdate(BaseModel):
+    status: str
+    notes: Optional[str] = None
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+
+def verify_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+
+async def get_current_user(request: Request, session_token: Optional[str] = Cookie(None)) -> User:
+    token = session_token
+    if not token:
+        auth_header = request.headers.get('Authorization')
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split(' ')[1]
     
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-class StatusCheckCreate(BaseModel):
-    client_name: str
-
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
-async def root():
-    return {"message": "Hello World"}
-
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
     
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
+    session_doc = await db.user_sessions.find_one({"session_token": token}, {"_id": 0})
+    if not session_doc:
+        raise HTTPException(status_code=401, detail="Invalid session")
     
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
+    expires_at = session_doc["expires_at"]
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=401, detail="Session expired")
+    
+    user_doc = await db.users.find_one({"user_id": session_doc["user_id"]}, {"_id": 0})
+    if not user_doc:
+        raise HTTPException(status_code=401, detail="User not found")
+    
+    if isinstance(user_doc['created_at'], str):
+        user_doc['created_at'] = datetime.fromisoformat(user_doc['created_at'])
+    
+    return User(**user_doc)
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
+@api_router.post("/auth/register")
+async def register(user_data: UserRegister, response: Response):
+    existing = await db.users.find_one({"email": user_data.email}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
     
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    password_hash = hash_password(user_data.password)
     
-    return status_checks
+    user = {
+        "user_id": user_id,
+        "email": user_data.email,
+        "password_hash": password_hash,
+        "name": user_data.name,
+        "picture": None,
+        "role": "user",
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.users.insert_one(user)
+    
+    session_token = f"session_{uuid.uuid4().hex}"
+    session = {
+        "user_id": user_id,
+        "session_token": session_token,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.user_sessions.insert_one(session)
+    
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/",
+        max_age=7*24*60*60
+    )
+    
+    user_copy = user.copy()
+    user_copy.pop('password_hash', None)
+    user_copy['created_at'] = datetime.fromisoformat(user_copy['created_at'])
+    return User(**user_copy)
 
-# Include the router in the main app
+@api_router.post("/auth/login")
+async def login(credentials: UserLogin, response: Response):
+    user_doc = await db.users.find_one({"email": credentials.email}, {"_id": 0})
+    if not user_doc:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    if not verify_password(credentials.password, user_doc["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    session_token = f"session_{uuid.uuid4().hex}"
+    session = {
+        "user_id": user_doc["user_id"],
+        "session_token": session_token,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.user_sessions.insert_one(session)
+    
+    response.set_cookie(
+        key="session_token",
+        value=session_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        path="/",
+        max_age=7*24*60*60
+    )
+    
+    user_copy = user_doc.copy()
+    user_copy.pop('password_hash', None)
+    if isinstance(user_copy['created_at'], str):
+        user_copy['created_at'] = datetime.fromisoformat(user_copy['created_at'])
+    return User(**user_copy)
+
+@api_router.post("/auth/session")
+async def process_google_session(session_data: SessionData, response: Response):
+    try:
+        ext_response = requests.get(
+            "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
+            headers={"X-Session-ID": session_data.session_id},
+            timeout=10
+        )
+        ext_response.raise_for_status()
+        data = ext_response.json()
+        
+        user_doc = await db.users.find_one({"email": data["email"]}, {"_id": 0})
+        
+        if user_doc:
+            user_id = user_doc["user_id"]
+            await db.users.update_one(
+                {"user_id": user_id},
+                {"$set": {
+                    "name": data["name"],
+                    "picture": data["picture"]
+                }}
+            )
+        else:
+            user_id = f"user_{uuid.uuid4().hex[:12]}"
+            user = {
+                "user_id": user_id,
+                "email": data["email"],
+                "name": data["name"],
+                "picture": data["picture"],
+                "role": "user",
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }
+            await db.users.insert_one(user)
+        
+        session_token = data["session_token"]
+        session = {
+            "user_id": user_id,
+            "session_token": session_token,
+            "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.user_sessions.insert_one(session)
+        
+        response.set_cookie(
+            key="session_token",
+            value=session_token,
+            httponly=True,
+            secure=True,
+            samesite="none",
+            path="/",
+            max_age=7*24*60*60
+        )
+        
+        user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+        user_copy = user_doc.copy()
+        user_copy.pop('password_hash', None)
+        if isinstance(user_copy['created_at'], str):
+            user_copy['created_at'] = datetime.fromisoformat(user_copy['created_at'])
+        return User(**user_copy)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@api_router.get("/auth/me")
+async def get_me(request: Request, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(request, session_token)
+    return user
+
+@api_router.post("/auth/logout")
+async def logout(request: Request, response: Response, session_token: Optional[str] = Cookie(None)):
+    token = session_token
+    if not token:
+        auth_header = request.headers.get('Authorization')
+        if auth_header and auth_header.startswith('Bearer '):
+            token = auth_header.split(' ')[1]
+    
+    if token:
+        await db.user_sessions.delete_one({"session_token": token})
+    
+    response.delete_cookie(key="session_token", path="/", samesite="none", secure=True)
+    return {"message": "Logged out successfully"}
+
+@api_router.post("/applications")
+async def create_application(app_data: ApplicationCreate, request: Request, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(request, session_token)
+    
+    application_id = f"app_{uuid.uuid4().hex[:12]}"
+    application = {
+        "application_id": application_id,
+        "user_id": user.user_id,
+        "visa_type": app_data.visa_type,
+        "status": "draft",
+        "personal_info": app_data.personal_info,
+        "travel_details": app_data.travel_details,
+        "documents": {},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.visa_applications.insert_one(application)
+    
+    app_copy = application.copy()
+    app_copy['created_at'] = datetime.fromisoformat(app_copy['created_at'])
+    app_copy['updated_at'] = datetime.fromisoformat(app_copy['updated_at'])
+    return VisaApplication(**app_copy)
+
+@api_router.get("/applications")
+async def get_applications(request: Request, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(request, session_token)
+    
+    apps = await db.visa_applications.find({"user_id": user.user_id}, {"_id": 0}).to_list(1000)
+    
+    for app in apps:
+        if isinstance(app['created_at'], str):
+            app['created_at'] = datetime.fromisoformat(app['created_at'])
+        if isinstance(app['updated_at'], str):
+            app['updated_at'] = datetime.fromisoformat(app['updated_at'])
+    
+    return [VisaApplication(**app) for app in apps]
+
+@api_router.get("/applications/{application_id}")
+async def get_application(application_id: str, request: Request, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(request, session_token)
+    
+    app = await db.visa_applications.find_one({"application_id": application_id}, {"_id": 0})
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+    
+    if app["user_id"] != user.user_id and user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    if isinstance(app['created_at'], str):
+        app['created_at'] = datetime.fromisoformat(app['created_at'])
+    if isinstance(app['updated_at'], str):
+        app['updated_at'] = datetime.fromisoformat(app['updated_at'])
+    
+    return VisaApplication(**app)
+
+@api_router.put("/applications/{application_id}")
+async def update_application(application_id: str, app_data: ApplicationCreate, request: Request, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(request, session_token)
+    
+    app = await db.visa_applications.find_one({"application_id": application_id}, {"_id": 0})
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+    
+    if app["user_id"] != user.user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    await db.visa_applications.update_one(
+        {"application_id": application_id},
+        {"$set": {
+            "visa_type": app_data.visa_type,
+            "personal_info": app_data.personal_info,
+            "travel_details": app_data.travel_details,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    updated_app = await db.visa_applications.find_one({"application_id": application_id}, {"_id": 0})
+    if isinstance(updated_app['created_at'], str):
+        updated_app['created_at'] = datetime.fromisoformat(updated_app['created_at'])
+    if isinstance(updated_app['updated_at'], str):
+        updated_app['updated_at'] = datetime.fromisoformat(updated_app['updated_at'])
+    
+    return VisaApplication(**updated_app)
+
+@api_router.post("/applications/{application_id}/documents")
+async def upload_document(application_id: str, file: UploadFile = File(...), doc_type: str = "passport", request: Request = None, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(request, session_token)
+    
+    app = await db.visa_applications.find_one({"application_id": application_id}, {"_id": 0})
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+    
+    if app["user_id"] != user.user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    content = await file.read()
+    encoded = base64.b64encode(content).decode('utf-8')
+    
+    document_data = {
+        "filename": file.filename,
+        "content_type": file.content_type,
+        "data": encoded
+    }
+    
+    await db.visa_applications.update_one(
+        {"application_id": application_id},
+        {"$set": {
+            f"documents.{doc_type}": document_data,
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    return {"message": "Document uploaded successfully", "doc_type": doc_type}
+
+@api_router.post("/applications/{application_id}/submit")
+async def submit_application(application_id: str, request: Request, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(request, session_token)
+    
+    app = await db.visa_applications.find_one({"application_id": application_id}, {"_id": 0})
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+    
+    if app["user_id"] != user.user_id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    await db.visa_applications.update_one(
+        {"application_id": application_id},
+        {"$set": {
+            "status": "submitted",
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        }}
+    )
+    
+    return {"message": "Application submitted successfully"}
+
+@api_router.get("/admin/applications")
+async def get_all_applications(request: Request, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(request, session_token)
+    
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    apps = await db.visa_applications.find({}, {"_id": 0}).to_list(1000)
+    
+    for app in apps:
+        if isinstance(app['created_at'], str):
+            app['created_at'] = datetime.fromisoformat(app['created_at'])
+        if isinstance(app['updated_at'], str):
+            app['updated_at'] = datetime.fromisoformat(app['updated_at'])
+    
+    return [VisaApplication(**app) for app in apps]
+
+@api_router.put("/admin/applications/{application_id}/status")
+async def update_application_status(application_id: str, status_data: StatusUpdate, request: Request, session_token: Optional[str] = Cookie(None)):
+    user = await get_current_user(request, session_token)
+    
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    update_data = {
+        "status": status_data.status,
+        "updated_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    if status_data.notes:
+        update_data["admin_notes"] = status_data.notes
+    
+    result = await db.visa_applications.update_one(
+        {"application_id": application_id},
+        {"$set": update_data}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Application not found")
+    
+    return {"message": "Status updated successfully"}
+
 app.include_router(api_router)
 
 app.add_middleware(
@@ -77,7 +451,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
