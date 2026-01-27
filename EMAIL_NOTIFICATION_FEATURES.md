@@ -3,26 +3,31 @@
 ## Overview
 The Meowls e-Visa system now includes enhanced email notifications with the following features:
 
-## 1. Admin CC on All Emails ✉️
+## 1. All Admins Receive Every Email 📧
 
-**Feature:** All admin accounts receive a copy (CC) of every approval and rejection email.
+**Feature:** Every admin account receives ALL approval and rejection emails directly.
 
 **How it works:**
 - When an admin approves or rejects a visa application
-- The system automatically sends email to the applicant
-- **All 9 admin accounts** are CC'd on the email
-- This keeps all admins informed of decisions in real-time
+- The system sends email to BOTH the applicant AND all admin accounts
+- All emails go directly to the "To" field (not CC or BCC)
+- This ensures 100% delivery to all admins
+- Keeps all admins informed of decisions in real-time
 
-**Current Admin Emails Receiving CC:**
-1. admin.test.1769434786282@example.com
-2. admin@meowls.gov
-3. Fardaan.tareen@gmail.com
-4. ftareen@dohacollege.com.qa
-5. salmadani@dohacollege.com.qa
-6. malfaarizqi@dohacollege.com.qa
-7. mmehdi@dohacollege.com.qa
-8. vnovruz@dohacollege.com.qa
-9. adfaheem@dohacollege.com.qa
+**Email Recipients:**
+- ✅ Applicant's email address
+- ✅ ALL 9 admin accounts receive the same email
+
+**Current Admin Emails Receiving All Notifications:**
+1. Fardaan.tareen@gmail.com
+2. ftareen@dohacollege.com.qa
+3. salmadani@dohacollege.com.qa
+4. malfaarizqi@dohacollege.com.qa
+5. mmehdi@dohacollege.com.qa
+6. vnovruz@dohacollege.com.qa
+7. adfaheem@dohacollege.com.qa
+8. admin@meowls.gov
+9. admin.test@example.com
 
 ## 2. Applicant Photo on Visa Document 📸
 
