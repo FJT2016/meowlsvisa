@@ -62,8 +62,7 @@ The Meowls e-Visa system now includes enhanced email notifications with the foll
 
 ### Approval Email 🎉
 - **Subject:** 🎉 Your Meowls Visa is APPROVED!
-- **To:** Applicant's email
-- **CC:** All 9 admin accounts
+- **To:** Applicant's email + ALL 9 admin accounts
 - **Attachment:** PDF visa document with applicant's photo
 - **Content:** 
   - Congratulations message
@@ -74,8 +73,7 @@ The Meowls e-Visa system now includes enhanced email notifications with the foll
 
 ### Rejection Email 📧
 - **Subject:** Meowls Visa Application Update
-- **To:** Applicant's email
-- **CC:** All 9 admin accounts
+- **To:** Applicant's email + ALL 9 admin accounts
 - **Content:**
   - Professional, kind rejection message
   - Admin notes (if provided)
