@@ -224,6 +224,30 @@ def create_visa_pdf(content: str, application: dict) -> BytesIO:
     story.append(Paragraph("Official e-Visa Document", header_style))
     story.append(Spacer(1, 0.3*inch))
     
+    # Add applicant photo if available
+    try:
+        if application.get('documents', {}).get('photo'):
+            photo_data = application['documents']['photo']
+            if isinstance(photo_data, dict) and 'data' in photo_data:
+                import base64
+                photo_bytes = base64.b64decode(photo_data['data'])
+                photo_buffer = BytesIO(photo_bytes)
+                
+                # Create photo with border
+                img = RLImage(photo_buffer, width=1.5*inch, height=1.5*inch)
+                
+                # Center the photo
+                photo_table = Table([[img]], colWidths=[1.5*inch])
+                photo_table.setStyle(TableStyle([
+                    ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                    ('BOX', (0, 0), (-1, -1), 2, colors.HexColor('#0F172A'))
+                ]))
+                story.append(photo_table)
+                story.append(Spacer(1, 0.2*inch))
+    except Exception as e:
+        logger.error(f"Failed to add photo to PDF: {str(e)}")
+    
     for line in content.split('\n'):
         if line.strip():
             story.append(Paragraph(line, body_style))
