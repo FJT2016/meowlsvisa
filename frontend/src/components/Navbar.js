@@ -79,6 +79,15 @@ const Navbar = ({ user }) => {
               </>
             ) : (
               <>
+                <a
+                  href="https://passport-meowl-apply.base44.app"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-medium text-amber-700 hover:text-amber-800 transition-colors"
+                  data-testid="navbar-apply-passport-link"
+                >
+                  Apply for Passport
+                </a>
                 <Link
                   to="/track"
                   className="text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors"

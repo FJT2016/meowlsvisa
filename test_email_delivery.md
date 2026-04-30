@@ -56,7 +56,7 @@ When an admin approves or rejects a visa application:
 ## Testing the Email System
 
 ### Step 1: Create a Test Application
-1. Go to: https://evisa-meowls.preview.emergentagent.com/register
+1. Go to: https://meowls-visa.preview.emergentagent.com/register
 2. Register with a test email you can access
 3. Complete the visa application form
 4. Upload documents (passport and photo)

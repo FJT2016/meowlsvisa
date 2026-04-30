@@ -278,17 +278,25 @@ def create_visa_pdf(content: str, application: dict) -> BytesIO:
     return buffer
 
 async def send_approval_email(application: dict):
-    """Send visa approval email with AI-generated document"""
+    """Send visa approval email with AI-generated document.
+    Sends an individual email to each recipient so that one failure (e.g. Resend
+    sandbox restrictions) does not block delivery to other recipients.
+    """
     try:
         visa_content = await generate_visa_document_with_ai(application)
         pdf_buffer = create_visa_pdf(visa_content, application)
+        pdf_bytes = list(pdf_buffer.getvalue())
         
         # Get all admin emails to include in recipients
         admin_users = await db.users.find({"role": "admin"}, {"_id": 0, "email": 1}).to_list(100)
         admin_emails = [admin["email"] for admin in admin_users]
         
-        # Combine applicant email with all admin emails
-        all_recipients = [application['personal_info']['email']] + admin_emails
+        applicant_email = application['personal_info']['email']
+        # Applicant first, then admins (dedupe, preserve order)
+        all_recipients = []
+        for e in [applicant_email] + admin_emails:
+            if e and e not in all_recipients:
+                all_recipients.append(e)
         
         html_content = f"""
         <html>
@@ -329,33 +337,49 @@ async def send_approval_email(application: dict):
         </html>
         """
         
-        params = {
+        params_base = {
             "from": SENDER_EMAIL,
-            "to": all_recipients,
-            "subject": "🎉 Your Meowls Visa is APPROVED!",
+            "subject": "Your Meowls Visa is APPROVED!",
             "html": html_content,
             "attachments": [{
                 "filename": f"meowls_visa_{application['application_id']}.pdf",
-                "content": list(pdf_buffer.getvalue())
+                "content": pdf_bytes
             }]
         }
-        
-        email = await asyncio.to_thread(resend.Emails.send, params)
-        logger.info(f"Approval email sent to {len(all_recipients)} recipients: applicant + {len(admin_emails)} admins")
-        return True
+
+        successes, failures = [], []
+        for idx, recipient in enumerate(all_recipients):
+            try:
+                params = {**params_base, "to": [recipient]}
+                await asyncio.to_thread(resend.Emails.send, params)
+                successes.append(recipient)
+            except Exception as send_err:
+                failures.append({"email": recipient, "error": str(send_err)})
+                logger.error(f"Approval email to {recipient} failed: {send_err}")
+            # Respect Resend 5 req/sec limit
+            if idx < len(all_recipients) - 1:
+                await asyncio.sleep(0.25)
+
+        logger.info(
+            f"Approval email results — success: {successes}, failures: {failures}"
+        )
+        return len(successes) > 0
     except Exception as e:
         logger.error(f"Failed to send approval email: {str(e)}")
         return False
 
 async def send_rejection_email(application: dict, notes: str = ""):
-    """Send kind visa rejection email"""
+    """Send kind visa rejection email. Sends individually per recipient."""
     try:
         # Get all admin emails to include in recipients
         admin_users = await db.users.find({"role": "admin"}, {"_id": 0, "email": 1}).to_list(100)
         admin_emails = [admin["email"] for admin in admin_users]
         
-        # Combine applicant email with all admin emails
-        all_recipients = [application['personal_info']['email']] + admin_emails
+        applicant_email = application['personal_info']['email']
+        all_recipients = []
+        for e in [applicant_email] + admin_emails:
+            if e and e not in all_recipients:
+                all_recipients.append(e)
         
         html_content = f"""
         <html>
@@ -402,16 +426,29 @@ async def send_rejection_email(application: dict, notes: str = ""):
         </html>
         """
         
-        params = {
+        params_base = {
             "from": SENDER_EMAIL,
-            "to": all_recipients,
             "subject": "Meowls Visa Application Update",
             "html": html_content
         }
-        
-        email = await asyncio.to_thread(resend.Emails.send, params)
-        logger.info(f"Rejection email sent to {len(all_recipients)} recipients: applicant + {len(admin_emails)} admins")
-        return True
+
+        successes, failures = [], []
+        for idx, recipient in enumerate(all_recipients):
+            try:
+                params = {**params_base, "to": [recipient]}
+                await asyncio.to_thread(resend.Emails.send, params)
+                successes.append(recipient)
+            except Exception as send_err:
+                failures.append({"email": recipient, "error": str(send_err)})
+                logger.error(f"Rejection email to {recipient} failed: {send_err}")
+            # Respect Resend 5 req/sec limit
+            if idx < len(all_recipients) - 1:
+                await asyncio.sleep(0.25)
+
+        logger.info(
+            f"Rejection email results — success: {successes}, failures: {failures}"
+        )
+        return len(successes) > 0
     except Exception as e:
         logger.error(f"Failed to send rejection email: {str(e)}")
         return False

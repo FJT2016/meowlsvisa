@@ -8,7 +8,7 @@ import uuid
 import os
 
 class MeowlsVisaAPITester:
-    def __init__(self, base_url="https://evisa-meowls.preview.emergentagent.com"):
+    def __init__(self, base_url="https://meowls-visa.preview.emergentagent.com"):
         self.base_url = base_url
         self.session = requests.Session()  # Use session to handle cookies
         self.user_id = None

@@ -26,17 +26,13 @@ All admin accounts use the same password: **admin123**
    - Email: `mmehdi@dohacollege.com.qa`
    - Password: `admin123`
 
-6. **V Novruz**
-   - Email: `vnovruz@dohacollege.com.qa`
-   - Password: `admin123`
-
-7. **AD Faheem**
+6. **AD Faheem**
    - Email: `adfaheem@dohacollege.com.qa`
    - Password: `admin123`
 
 ## Admin Portal Access
 
-1. Go to: https://evisa-meowls.preview.emergentagent.com/login
+1. Go to: https://meowls-visa.preview.emergentagent.com/login
 2. Enter your email and password (admin123)
 3. Click "Sign In"
 4. You'll be redirected to the dashboard

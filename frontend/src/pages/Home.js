@@ -71,6 +71,15 @@ const Home = () => {
             >
               Apply for e-Visa
             </Link>
+            <a
+              href="https://passport-meowl-apply.base44.app"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-amber-600 hover:bg-amber-700 text-white px-8 py-4 text-lg rounded-md font-medium transition-all inline-block"
+              data-testid="apply-passport-button"
+            >
+              Apply for Passport
+            </a>
             <Link 
               to="/track" 
               className="bg-white text-slate-900 hover:bg-slate-100 px-8 py-4 text-lg rounded-md font-medium transition-all inline-block"
