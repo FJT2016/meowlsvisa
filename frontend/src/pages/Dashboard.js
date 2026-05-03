@@ -1,9 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { FileText, Plus, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import {
+  FileText,
+  Plus,
+  Clock,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  Download,
+  Bell,
+  BellOff,
+} from 'lucide-react';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import { toast } from 'sonner';
+import { pushSupported, subscribeToPush } from '../lib/pushNotifications';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 
@@ -12,21 +23,22 @@ const Dashboard = () => {
   const [user, setUser] = useState(null);
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [notifPermission, setNotifPermission] = useState(
+    typeof Notification !== 'undefined' ? Notification.permission : 'default'
+  );
 
   useEffect(() => {
     fetchUser();
     fetchApplications();
+    fetchAndToastNotifications();
   }, []);
 
   const fetchUser = async () => {
     try {
       const response = await fetch(`${BACKEND_URL}/api/auth/me`, {
-        credentials: 'include'
+        credentials: 'include',
       });
-      if (response.ok) {
-        const userData = await response.json();
-        setUser(userData);
-      }
+      if (response.ok) setUser(await response.json());
     } catch (error) {
       console.error('Error fetching user:', error);
     }
@@ -35,17 +47,88 @@ const Dashboard = () => {
   const fetchApplications = async () => {
     try {
       const response = await fetch(`${BACKEND_URL}/api/applications`, {
-        credentials: 'include'
+        credentials: 'include',
       });
-      if (response.ok) {
-        const data = await response.json();
-        setApplications(data);
-      }
+      if (response.ok) setApplications(await response.json());
     } catch (error) {
       console.error('Error fetching applications:', error);
       toast.error('Failed to load applications');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchAndToastNotifications = async () => {
+    try {
+      const resp = await fetch(`${BACKEND_URL}/api/notifications`, {
+        credentials: 'include',
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      for (const n of data.unread || []) {
+        if (n.status === 'approved') {
+          toast.success(`Visa Approved — ${n.application_id}`, {
+            description: 'Your visa PDF is ready. Scroll below to download it.',
+            duration: 7000,
+          });
+        } else if (n.status === 'rejected') {
+          toast.error(`Visa Application Update — ${n.application_id}`, {
+            description: n.admin_notes
+              ? `Reason: ${n.admin_notes}`
+              : 'Your application was not approved.',
+            duration: 9000,
+          });
+        }
+        // Mark as seen so we don't spam on re-mount
+        fetch(
+          `${BACKEND_URL}/api/notifications/${n.application_id}/read`,
+          { method: 'POST', credentials: 'include' }
+        ).catch(() => {});
+      }
+    } catch (e) {
+      console.error('notifications fetch failed', e);
+    }
+  };
+
+  const handleEnableNotifications = async () => {
+    if (!pushSupported()) {
+      toast.error('Push notifications are not supported on this device/browser.');
+      return;
+    }
+    const result = await subscribeToPush();
+    if (result.ok) {
+      toast.success('Notifications enabled — you will get alerts on approvals & rejections.');
+      setNotifPermission('granted');
+    } else if (result.reason === 'denied') {
+      toast.error('Permission denied. Enable notifications from your browser settings.');
+      setNotifPermission('denied');
+    } else {
+      toast.error('Could not enable notifications.');
+    }
+  };
+
+  const handleDownloadPdf = async (applicationId) => {
+    try {
+      const resp = await fetch(
+        `${BACKEND_URL}/api/applications/${applicationId}/visa-pdf`,
+        { credentials: 'include' }
+      );
+      if (!resp.ok) {
+        toast.error('Visa PDF is not available yet.');
+        return;
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `meowls_visa_${applicationId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success('Visa PDF downloaded');
+    } catch (e) {
+      toast.error('Download failed');
     }
   };
 
@@ -64,11 +147,16 @@ const Dashboard = () => {
 
   const getStatusClass = (status) => {
     switch (status) {
-      case 'approved': return 'status-badge status-approved';
-      case 'rejected': return 'status-badge status-rejected';
-      case 'under-review': return 'status-badge status-under-review';
-      case 'submitted': return 'status-badge status-submitted';
-      default: return 'status-badge status-draft';
+      case 'approved':
+        return 'status-badge status-approved';
+      case 'rejected':
+        return 'status-badge status-rejected';
+      case 'under-review':
+        return 'status-badge status-under-review';
+      case 'submitted':
+        return 'status-badge status-submitted';
+      default:
+        return 'status-badge status-draft';
     }
   };
 
@@ -78,29 +166,31 @@ const Dashboard = () => {
       value: applications.length,
       icon: <FileText className="h-6 w-6" />,
       bgColor: 'bg-blue-50',
-      textColor: 'text-blue-600'
+      textColor: 'text-blue-600',
     },
     {
       title: 'Approved',
-      value: applications.filter(a => a.status === 'approved').length,
+      value: applications.filter((a) => a.status === 'approved').length,
       icon: <CheckCircle className="h-6 w-6" />,
       bgColor: 'bg-green-50',
-      textColor: 'text-green-600'
+      textColor: 'text-green-600',
     },
     {
       title: 'Pending',
-      value: applications.filter(a => ['submitted', 'under-review'].includes(a.status)).length,
+      value: applications.filter((a) =>
+        ['submitted', 'under-review'].includes(a.status)
+      ).length,
       icon: <Clock className="h-6 w-6" />,
       bgColor: 'bg-yellow-50',
-      textColor: 'text-yellow-600'
+      textColor: 'text-yellow-600',
     },
     {
       title: 'Draft',
-      value: applications.filter(a => a.status === 'draft').length,
+      value: applications.filter((a) => a.status === 'draft').length,
       icon: <AlertCircle className="h-6 w-6" />,
       bgColor: 'bg-slate-50',
-      textColor: 'text-slate-600'
-    }
+      textColor: 'text-slate-600',
+    },
   ];
 
   return (
@@ -108,11 +198,45 @@ const Dashboard = () => {
       <Navbar user={user} />
 
       <div className="max-w-7xl mx-auto px-6 py-12">
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-slate-900 mb-2" data-testid="dashboard-title">
-            Welcome back, {user?.name}!
-          </h1>
-          <p className="text-lg text-slate-600">Manage your visa applications</p>
+        <div className="mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1
+              className="text-4xl font-bold text-slate-900 mb-2"
+              data-testid="dashboard-title"
+            >
+              Welcome back, {user?.name}!
+            </h1>
+            <p className="text-lg text-slate-600">Manage your visa applications</p>
+          </div>
+
+          {pushSupported() && notifPermission !== 'granted' && (
+            <button
+              onClick={handleEnableNotifications}
+              className="btn-secondary flex items-center space-x-2"
+              data-testid="enable-notifications-button"
+            >
+              <Bell className="h-4 w-4" />
+              <span>Enable Push Notifications</span>
+            </button>
+          )}
+          {notifPermission === 'granted' && (
+            <div
+              className="text-sm text-green-700 bg-green-50 border border-green-200 px-3 py-2 rounded-md flex items-center space-x-2"
+              data-testid="notifications-enabled-badge"
+            >
+              <Bell className="h-4 w-4" />
+              <span>Notifications enabled</span>
+            </div>
+          )}
+          {notifPermission === 'denied' && (
+            <div
+              className="text-sm text-slate-600 bg-slate-100 border border-slate-200 px-3 py-2 rounded-md flex items-center space-x-2"
+              data-testid="notifications-blocked-badge"
+            >
+              <BellOff className="h-4 w-4" />
+              <span>Notifications blocked</span>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-12">
@@ -123,7 +247,9 @@ const Dashboard = () => {
               data-testid={`stat-card-${index}`}
             >
               <div className="flex items-center justify-between mb-4">
-                <div className={`${stat.bgColor} ${stat.textColor} w-12 h-12 rounded-lg flex items-center justify-center`}>
+                <div
+                  className={`${stat.bgColor} ${stat.textColor} w-12 h-12 rounded-lg flex items-center justify-center`}
+                >
                   {stat.icon}
                 </div>
                 <span className="text-3xl font-bold text-slate-900">{stat.value}</span>
@@ -150,9 +276,14 @@ const Dashboard = () => {
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-slate-900 mx-auto"></div>
           </div>
         ) : applications.length === 0 ? (
-          <div className="bg-white rounded-xl border border-slate-200 p-12 text-center" data-testid="no-applications">
+          <div
+            className="bg-white rounded-xl border border-slate-200 p-12 text-center"
+            data-testid="no-applications"
+          >
             <FileText className="h-16 w-16 text-slate-300 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-slate-900 mb-2">No Applications Yet</h3>
+            <h3 className="text-xl font-semibold text-slate-900 mb-2">
+              No Applications Yet
+            </h3>
             <p className="text-slate-600 mb-6">Start your first visa application today</p>
             <Link to="/apply" className="btn-primary inline-block">
               Apply for Visa
@@ -182,12 +313,20 @@ const Dashboard = () => {
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {applications.map((app, index) => (
-                  <tr key={app.application_id} className="hover:bg-slate-50 transition-colors" data-testid={`application-row-${index}`}>
+                  <tr
+                    key={app.application_id}
+                    className="hover:bg-slate-50 transition-colors"
+                    data-testid={`application-row-${index}`}
+                  >
                     <td className="px-6 py-4">
-                      <span className="text-sm font-mono text-slate-900">{app.application_id}</span>
+                      <span className="text-sm font-mono text-slate-900">
+                        {app.application_id}
+                      </span>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-sm text-slate-900 capitalize">{app.visa_type}</span>
+                      <span className="text-sm text-slate-900 capitalize">
+                        {app.visa_type}
+                      </span>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center space-x-2">
@@ -201,13 +340,25 @@ const Dashboard = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4">
-                      <Link
-                        to={`/applications/${app.application_id}`}
-                        className="text-sm font-medium text-slate-900 hover:text-slate-700"
-                        data-testid={`view-application-${index}`}
-                      >
-                        View Details →
-                      </Link>
+                      <div className="flex items-center space-x-3">
+                        <Link
+                          to={`/applications/${app.application_id}`}
+                          className="text-sm font-medium text-slate-900 hover:text-slate-700"
+                          data-testid={`view-application-${index}`}
+                        >
+                          View Details →
+                        </Link>
+                        {app.status === 'approved' && (
+                          <button
+                            onClick={() => handleDownloadPdf(app.application_id)}
+                            className="text-sm font-medium text-amber-700 hover:text-amber-800 flex items-center space-x-1"
+                            data-testid={`download-pdf-${index}`}
+                          >
+                            <Download className="h-4 w-4" />
+                            <span>Download PDF</span>
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}

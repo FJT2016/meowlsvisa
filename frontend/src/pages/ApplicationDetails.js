@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, FileText, Calendar, User, MapPin, Mail, Phone, CheckCircle } from 'lucide-react';
+import { ArrowLeft, FileText, Calendar, User, MapPin, Mail, Phone, CheckCircle, Download, XCircle } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import { toast } from 'sonner';
@@ -40,6 +40,13 @@ const ApplicationDetails = () => {
       if (response.ok) {
         const data = await response.json();
         setApplication(data);
+        // Mark any unread status notification for this application as read
+        if (data && (data.status === 'approved' || data.status === 'rejected')) {
+          fetch(`${BACKEND_URL}/api/notifications/${data.application_id}/read`, {
+            method: 'POST',
+            credentials: 'include'
+          }).catch(() => {});
+        }
       } else {
         toast.error('Application not found');
       }
@@ -48,6 +55,31 @@ const ApplicationDetails = () => {
       toast.error('Failed to load application');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    try {
+      const resp = await fetch(
+        `${BACKEND_URL}/api/applications/${id}/visa-pdf`,
+        { credentials: 'include' }
+      );
+      if (!resp.ok) {
+        toast.error('Visa PDF is not available yet.');
+        return;
+      }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `meowls_visa_${id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success('Visa PDF downloaded');
+    } catch (e) {
+      toast.error('Download failed');
     }
   };
 
@@ -118,12 +150,47 @@ const ApplicationDetails = () => {
           </div>
 
           {application.status === 'approved' && (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6" data-testid="approval-notice">
-              <div className="flex items-center space-x-2">
-                <CheckCircle className="h-5 w-5 text-green-600" />
-                <p className="text-sm text-green-800">
-                  <strong>Congratulations!</strong> Your visa has been approved. Please proceed to immigration with this approval.
-                </p>
+            <div className="bg-green-50 border border-green-200 rounded-lg p-6 mb-6" data-testid="approval-notice">
+              <div className="flex items-start space-x-3">
+                <CheckCircle className="h-6 w-6 text-green-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-base font-semibold text-green-900 mb-1">
+                    Congratulations! Your visa has been approved.
+                  </p>
+                  <p className="text-sm text-green-800 mb-4">
+                    Download your official e-Visa PDF below and present it at immigration upon arrival.
+                  </p>
+                  <button
+                    onClick={handleDownloadPdf}
+                    className="btn-primary inline-flex items-center space-x-2"
+                    data-testid="download-visa-pdf-button"
+                  >
+                    <Download className="h-4 w-4" />
+                    <span>Download Visa PDF</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {application.status === 'rejected' && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-6 mb-6" data-testid="rejection-notice">
+              <div className="flex items-start space-x-3">
+                <XCircle className="h-6 w-6 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-base font-semibold text-red-900 mb-1">
+                    Your visa application was not approved.
+                  </p>
+                  {application.admin_notes ? (
+                    <p className="text-sm text-red-800">
+                      <strong>Reason:</strong> {application.admin_notes}
+                    </p>
+                  ) : (
+                    <p className="text-sm text-red-800">
+                      Please review your application and consider reapplying with corrected information.
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           )}

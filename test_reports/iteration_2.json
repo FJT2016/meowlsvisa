@@ -1,0 +1,79 @@
+{
+  "summary": "Tested all newly-added features: web push (subscribe/unsubscribe + VAPID key), in-app notifications (list + mark-read), approved-app PDF persistence + download (owner/admin/forbidden/unauth/non-approved), rejection flow with admin_notes surfaced in /api/notifications, auth regressions, PWA assets (manifest/sw.js/icons/index head), service-worker registration, and frontend dashboard + ApplicationDetails approved/rejected cards. 17/17 backend pytest cases passed. Frontend playwright flow passed for PWA + apply-passport + approved download. Two bugs surfaced: (1) /api/applications/{id} strips admin_notes via Pydantic model so the rejected card never shows the admin reason; (2) dashboard shows both 'Enable Push Notifications' button AND 'Notifications blocked' badge when permission is denied.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/applications/{application_id}",
+        "issue": "Pydantic VisaApplication model has no admin_notes field and ConfigDict(extra='ignore'), so admin_notes is silently dropped from the response. Frontend ApplicationDetails rejection-notice therefore always falls back to the generic message and never shows the admin's reason. Same issue affects /api/applications and /api/admin/applications. /api/notifications is unaffected because it does a raw projection.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Dashboard.js (notification controls)",
+        "issue": "When Notification.permission==='denied', both the 'Enable Push Notifications' button and the 'Notifications blocked' badge render side-by-side. The enable button's gating condition is `notifPermission !== 'granted'` and should be `notifPermission === 'default'` so it disappears once the user has denied permission.",
+        "selector": "[data-testid='enable-notifications-button'] + [data-testid='notifications-blocked-badge']",
+        "priority": "LOW"
+      },
+      {
+        "component": "public/sw.js (cosmetic, not blocking)",
+        "issue": "Line 82 has a stray `self.appAddEventListener = self.addEventListener.bind(self);` — looks like leftover/dead code. Safe to remove. Does not affect SW registration or push handling.",
+        "selector": "n/a",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "passed_tests": [
+    "GET /api/push/vapid-public-key returns non-empty key without auth",
+    "POST /api/push/subscribe requires auth (401 unauth) and 200 + ok=true with cookie; idempotent upsert by endpoint",
+    "POST /api/push/unsubscribe returns 200 + ok=true",
+    "PUT /api/admin/applications/{id}/status status=approved persists base64 PDF (visa_document) and resets status_seen_at",
+    "GET /api/notifications returns approved+rejected unread items including admin_notes for rejected",
+    "POST /api/notifications/{id}/read returns ok=true and clears it from next /api/notifications response; 404 for non-existent id",
+    "GET /api/applications/{id}/visa-pdf for approved app returns application/pdf with attachment Content-Disposition and starts with %PDF",
+    "GET /api/applications/{id}/visa-pdf returns 401 unauth, 403 for other users, 400 for not-yet-approved",
+    "Auth regression: register + admin login still work; vnovruz@dohacollege.com.qa cannot login (removed)",
+    "PWA: /manifest.json, /sw.js (javascript MIME), /icon-192.png, /icon-512.png served at preview URL",
+    "PWA: index.html includes <link rel='manifest' href='/manifest.json'> and apple-touch-icon",
+    "PWA: navigator.serviceWorker.getRegistration('/') returns reg with scope '/' and scriptURL=/sw.js",
+    "Home apply-passport-button -> https://passport-meowl-apply.base44.app",
+    "Navbar navbar-apply-passport-link -> https://passport-meowl-apply.base44.app",
+    "Dashboard shows enable-notifications-button when permission != granted",
+    "Dashboard shows download-pdf-N button on approved row; clicking triggers .pdf download",
+    "ApplicationDetails approved: approval-notice + download-visa-pdf-button visible",
+    "ApplicationDetails rejected: rejection-notice visible (but admin_notes text not shown — see bug above)"
+  ],
+  "test_report_links": [
+    "/app/backend/tests/test_push_pdf_notifications.py",
+    "/app/test_reports/pytest/iter2_results.xml"
+  ],
+  "action_items": [
+    "FIX: Add `admin_notes: Optional[str] = None` (and likely `visa_document: Optional[dict] = None`, `status_changed_at: Optional[datetime] = None`, `status_seen_at: Optional[datetime] = None`) to the VisaApplication Pydantic model in /app/backend/server.py so admin_notes is returned by GET /api/applications/{id}. Without this, the rejection-notice card in ApplicationDetails.js can never show the rejection reason — only the generic fallback paragraph.",
+    "FIX (low priority): In /app/frontend/src/pages/Dashboard.js change the enable-notifications-button condition from `notifPermission !== 'granted'` to `notifPermission === 'default'` so the button disappears once permission has been denied (currently both enable button and blocked badge render together).",
+    "CLEANUP (cosmetic): Remove dead line `self.appAddEventListener = self.addEventListener.bind(self);` from /app/frontend/public/sw.js."
+  ],
+  "critical_code_review_comments": [
+    "VisaApplication response model is over-restrictive — admin_notes (and all other writes done via $set such as visa_document/status_changed_at/status_seen_at) are stripped by `extra='ignore'`. Either declare them as Optional fields on the model or return raw dicts.",
+    "Dashboard's notification permission UI has overlapping conditions (`!== 'granted'` collides with the `=== 'denied'` branch).",
+    "send_push_to_user is fire-and-forget via asyncio.create_task — fine, but failures are only logged. Consider surfacing failed pushes to monitoring; not a blocker.",
+    "PDF generation runs inline (sync to_thread is not used) inside the admin status PUT handler before the DB update; this can take 5-15s due to OpenAI call. Consider moving into the background task to keep the admin endpoint snappy. Not a correctness bug."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_push_pdf_notifications.py (NEW pytest suite)"
+  ],
+  "success_rate": {
+    "backend": "100% (17/17 pytest cases)",
+    "frontend": "~92% (1 functional bug — admin_notes not displayed in rejection card; 1 minor UX issue)"
+  },
+  "test_credentials": "Admin: Fardaan.tareen@gmail.com / admin123 (from /app/memory/test_credentials.md). Applicants are registered fresh in tests with TEST_ prefixed emails.",
+  "seed_data_creation": "Tests register fresh TEST_ users + create+approve/reject visa applications inline. ~5 test users + ~3 applications added per run; safe to leave (TEST_ prefixed).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest suite at /app/backend/tests/test_push_pdf_notifications.py is the regression file. After main agent fixes (a) VisaApplication model to include admin_notes and (b) Dashboard enable-button condition, retest by: (1) re-running pytest -v test_push_pdf_notifications.py and (2) UI-checking that /applications/{rejected_id} now shows the 'Reason: ...' line inside [data-testid='rejection-notice']. The rest of the surface area (PWA, push subscribe, PDF download, approval card) is verified working.",
+  "rca of the issue": "Root cause for missing admin_notes on rejection page: backend `class VisaApplication(BaseModel)` declares only the legacy fields and uses `model_config = ConfigDict(extra='ignore')`. Endpoints like GET /api/applications/{id} fetch the raw mongo doc (which DOES contain admin_notes after rejection) and pass it through `VisaApplication(**app)`; FastAPI then serializes only the model fields, dropping admin_notes. The frontend ApplicationDetails.js renders `application.admin_notes` correctly when present, so the fix is purely on the backend Pydantic model."
+}

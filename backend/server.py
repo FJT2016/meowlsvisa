@@ -1,9 +1,10 @@
 from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Cookie, Response, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import json as json_lib
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict, EmailStr
@@ -15,6 +16,7 @@ import base64
 import requests
 import asyncio
 import resend
+from pywebpush import webpush, WebPushException
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.lib.units import inch
@@ -34,6 +36,9 @@ db = client[os.environ['DB_NAME']]
 resend.api_key = os.environ.get('RESEND_API_KEY')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
+VAPID_PUBLIC_KEY = os.environ.get('VAPID_PUBLIC_KEY')
+VAPID_PRIVATE_KEY = os.environ.get('VAPID_PRIVATE_KEY')
+VAPID_CLAIMS_SUB = os.environ.get('VAPID_CLAIMS_SUB', 'mailto:admin@meowls.gov')
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -777,13 +782,31 @@ async def update_application_status(application_id: str, status_data: StatusUpda
     if not app:
         raise HTTPException(status_code=404, detail="Application not found")
     
+    now_iso = datetime.now(timezone.utc).isoformat()
     update_data = {
         "status": status_data.status,
-        "updated_at": datetime.now(timezone.utc).isoformat()
+        "updated_at": now_iso,
+        "status_changed_at": now_iso,
+        "status_seen_at": None,  # reset on every status change so applicant gets new notification
     }
     
     if status_data.notes:
         update_data["admin_notes"] = status_data.notes
+
+    # If approved, generate the PDF now and persist it so the applicant can download in-app
+    if status_data.status == "approved":
+        try:
+            visa_content = await generate_visa_document_with_ai(app)
+            pdf_buffer = create_visa_pdf(visa_content, app)
+            pdf_b64 = base64.b64encode(pdf_buffer.getvalue()).decode("ascii")
+            update_data["visa_document"] = {
+                "filename": f"meowls_visa_{application_id}.pdf",
+                "content_type": "application/pdf",
+                "data": pdf_b64,
+                "generated_at": now_iso,
+            }
+        except Exception as e:
+            logger.error(f"Failed to pre-generate visa PDF for {application_id}: {e}")
     
     result = await db.visa_applications.update_one(
         {"application_id": application_id},
@@ -797,10 +820,182 @@ async def update_application_status(application_id: str, status_data: StatusUpda
     
     if status_data.status == "approved":
         asyncio.create_task(send_approval_email(updated_app))
+        asyncio.create_task(send_push_to_user(updated_app["user_id"], {
+            "title": "Meowls Visa Approved",
+            "body": f"Your {updated_app['visa_type'].title()} visa has been approved. Tap to download your visa PDF.",
+            "application_id": application_id,
+            "status": "approved",
+        }))
     elif status_data.status == "rejected":
         asyncio.create_task(send_rejection_email(updated_app, status_data.notes or ""))
+        asyncio.create_task(send_push_to_user(updated_app["user_id"], {
+            "title": "Meowls Visa Update",
+            "body": f"Your visa application ({application_id}) was not approved. Tap to see details.",
+            "application_id": application_id,
+            "status": "rejected",
+        }))
     
     return {"message": "Status updated successfully", "email_sent": status_data.status in ["approved", "rejected"]}
+
+# ============================================================
+# Web Push + In-app Notifications
+# ============================================================
+
+class PushSubscription(BaseModel):
+    endpoint: str
+    keys: dict
+
+async def send_push_to_user(user_id: str, payload: dict):
+    """Send a web push notification to every subscription registered for this user."""
+    if not VAPID_PUBLIC_KEY or not VAPID_PRIVATE_KEY:
+        logger.warning("VAPID keys not configured; skipping push")
+        return
+    subs = await db.push_subscriptions.find({"user_id": user_id}, {"_id": 0}).to_list(100)
+    if not subs:
+        logger.info(f"No push subscriptions for user {user_id}")
+        return
+
+    successes, dead = 0, []
+    for sub in subs:
+        try:
+            await asyncio.to_thread(
+                webpush,
+                subscription_info={"endpoint": sub["endpoint"], "keys": sub["keys"]},
+                data=json_lib.dumps(payload),
+                vapid_private_key=VAPID_PRIVATE_KEY,
+                vapid_claims={"sub": VAPID_CLAIMS_SUB},
+            )
+            successes += 1
+        except WebPushException as e:
+            # 404/410 means the subscription is no longer valid — remove it
+            status_code = getattr(getattr(e, "response", None), "status_code", None)
+            if status_code in (404, 410):
+                dead.append(sub["endpoint"])
+            logger.error(f"Push to {sub['endpoint'][:60]}... failed: {e}")
+        except Exception as e:
+            logger.error(f"Push error: {e}")
+    if dead:
+        await db.push_subscriptions.delete_many({"endpoint": {"$in": dead}})
+    logger.info(f"Push sent to user {user_id}: {successes}/{len(subs)} delivered, {len(dead)} pruned")
+
+
+@api_router.get("/push/vapid-public-key")
+async def get_vapid_public_key():
+    if not VAPID_PUBLIC_KEY:
+        raise HTTPException(status_code=503, detail="Push notifications not configured")
+    return {"public_key": VAPID_PUBLIC_KEY}
+
+
+@api_router.post("/push/subscribe")
+async def subscribe_push(
+    subscription: PushSubscription,
+    request: Request,
+    session_token: Optional[str] = Cookie(None),
+):
+    user = await get_current_user(request, session_token)
+    doc = {
+        "user_id": user.user_id,
+        "endpoint": subscription.endpoint,
+        "keys": subscription.keys,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.push_subscriptions.update_one(
+        {"endpoint": subscription.endpoint},
+        {"$set": doc},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api_router.post("/push/unsubscribe")
+async def unsubscribe_push(
+    subscription: PushSubscription,
+    request: Request,
+    session_token: Optional[str] = Cookie(None),
+):
+    user = await get_current_user(request, session_token)
+    await db.push_subscriptions.delete_one(
+        {"endpoint": subscription.endpoint, "user_id": user.user_id}
+    )
+    return {"ok": True}
+
+
+@api_router.get("/notifications")
+async def get_notifications(request: Request, session_token: Optional[str] = Cookie(None)):
+    """Return all the user's applications whose status was changed and not yet seen."""
+    user = await get_current_user(request, session_token)
+    cursor = db.visa_applications.find(
+        {
+            "user_id": user.user_id,
+            "status": {"$in": ["approved", "rejected"]},
+            "status_seen_at": None,
+        },
+        {"_id": 0, "application_id": 1, "visa_type": 1, "status": 1,
+         "status_changed_at": 1, "admin_notes": 1},
+    )
+    items = await cursor.to_list(100)
+    return {"unread": items, "count": len(items)}
+
+
+@api_router.post("/notifications/{application_id}/read")
+async def mark_notification_read(
+    application_id: str, request: Request, session_token: Optional[str] = Cookie(None)
+):
+    user = await get_current_user(request, session_token)
+    result = await db.visa_applications.update_one(
+        {"application_id": application_id, "user_id": user.user_id},
+        {"$set": {"status_seen_at": datetime.now(timezone.utc).isoformat()}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Application not found")
+    return {"ok": True}
+
+
+@api_router.get("/applications/{application_id}/visa-pdf")
+async def download_visa_pdf(
+    application_id: str, request: Request, session_token: Optional[str] = Cookie(None)
+):
+    user = await get_current_user(request, session_token)
+    app_doc = await db.visa_applications.find_one(
+        {"application_id": application_id}, {"_id": 0}
+    )
+    if not app_doc:
+        raise HTTPException(status_code=404, detail="Application not found")
+    if app_doc["user_id"] != user.user_id and user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    if app_doc.get("status") != "approved":
+        raise HTTPException(status_code=400, detail="Visa not approved yet")
+
+    visa_doc = app_doc.get("visa_document")
+    if not visa_doc or not visa_doc.get("data"):
+        # Generate on-demand if missing (e.g. applications approved before this feature)
+        try:
+            visa_content = await generate_visa_document_with_ai(app_doc)
+            pdf_buffer = create_visa_pdf(visa_content, app_doc)
+            pdf_bytes = pdf_buffer.getvalue()
+            pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii")
+            visa_doc = {
+                "filename": f"meowls_visa_{application_id}.pdf",
+                "content_type": "application/pdf",
+                "data": pdf_b64,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+            }
+            await db.visa_applications.update_one(
+                {"application_id": application_id},
+                {"$set": {"visa_document": visa_doc}},
+            )
+        except Exception as e:
+            logger.error(f"On-demand PDF generation failed: {e}")
+            raise HTTPException(status_code=500, detail="Could not generate visa document")
+    else:
+        pdf_bytes = base64.b64decode(visa_doc["data"])
+
+    filename = visa_doc.get("filename", f"meowls_visa_{application_id}.pdf")
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 app.include_router(api_router)
 
