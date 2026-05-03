@@ -209,7 +209,7 @@ const Dashboard = () => {
             <p className="text-lg text-slate-600">Manage your visa applications</p>
           </div>
 
-          {pushSupported() && notifPermission !== 'granted' && (
+          {pushSupported() && notifPermission === 'default' && (
             <button
               onClick={handleEnableNotifications}
               className="btn-secondary flex items-center space-x-2"

@@ -79,7 +79,6 @@ self.addEventListener('push', (event) => {
 });
 
 /* Notification click — focus or open the app to the application's detail page */
-self.appAddEventListener = self.addEventListener.bind(self);
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const appId = event.notification?.data?.application_id;

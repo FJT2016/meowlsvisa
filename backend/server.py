@@ -75,6 +75,10 @@ class VisaApplication(BaseModel):
     documents: dict
     created_at: datetime
     updated_at: datetime
+    admin_notes: Optional[str] = None
+    visa_document: Optional[dict] = None
+    status_changed_at: Optional[str] = None
+    status_seen_at: Optional[str] = None
 
 class ApplicationCreate(BaseModel):
     visa_type: str
