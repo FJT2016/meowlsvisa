@@ -1,23 +1,41 @@
 # Meowls e-Visa Portal — PRD
 
 ## Problem Statement
-Visa application for fake country "Meowls" similar to India e-visa:
-- Users register, apply for a visa, upload passport + photo, track applications
-- Admin portal for government officials to approve / reject visas
-- AI-generated visa documents (with applicant photo embedded)
-- **Device push notifications** (Web Push API + VAPID) for approve/reject
-- **In-app PDF download** for approved visas
-- **In-app rejection notice** with admin's reason
-- **Full PWA support** — installable, offline app shell, service worker
-- Email notifications (currently limited to Resend sandbox account owner)
+Visa application for fake country "Meowls":
+- Users register, apply, upload passport + photo, track applications
+- Admin portal (government officials) approves / rejects visas
+- AI-generated visa documents (with applicant photo) + in-app PDF download
+- Push + in-app + email notifications for approve/reject
+- Full PWA (installable, offline, service worker)
 - "Apply for Passport" button → https://passport-meowl-apply.base44.app
 
 ## Tech Stack
-- Frontend: React, Tailwind, React Router, Sonner toasts, **PWA (manifest + service worker)**
-- Backend: FastAPI, Motor (MongoDB), bcrypt sessions, **pywebpush + VAPID**
-- Integrations: OpenAI GPT-4o (document text), Resend (email), ReportLab (PDF)
+- Frontend: React, Tailwind, React Router, Sonner, PWA (manifest + service worker)
+- Backend: FastAPI, Motor, bcrypt sessions, pywebpush + VAPID, resend, reportlab, OpenAI (gpt-4o)
 
-## Current Admin List (password: `admin123`)
+## Backend module layout (post-refactor May 4, 2026)
+```
+backend/
+  server.py              # thin wire-up + startup hook (email retry worker)
+  config.py              # env + constants
+  database.py            # Mongo client + db
+  models.py              # Pydantic models
+  services/
+    auth.py              # hash, verify, get_current_user
+    pdf.py               # AI text + PDF renderer + background persistence
+    email.py             # send_approval/rejection + retry queue + retry worker
+    push.py              # send_push_to_user (VAPID)
+  routes/
+    auth.py              # /auth/*
+    applications.py      # /applications/*
+    admin.py             # /admin/applications (paginated)
+    notifications.py     # /notifications/*, /applications/{id}/visa-pdf
+    push.py              # /push/*
+  tests/
+    test_push_pdf_notifications.py  (17 passing)
+```
+
+## Admin List (password `admin123`)
 1. Fardaan Tareen — Fardaan.tareen@gmail.com
 2. F Tareen — ftareen@dohacollege.com.qa  ← Resend account owner
 3. S Almadani — salmadani@dohacollege.com.qa
@@ -28,38 +46,39 @@ Visa application for fake country "Meowls" similar to India e-visa:
 ## Implemented (as of May 4, 2026)
 ### Core flows
 - Full visa apply flow (5 steps)
-- Admin dashboard + review (approve / reject with admin_notes) — now with **search across ID / name / passport / email / nationality + status filter + paginated table (10 / 25 / 50 / 100 per page)**
+- Admin dashboard + review (approve/reject with admin_notes)
 - AI-generated visa PDF with applicant photo embedded
-- Resend per-recipient email (applicant + every admin, with individual failure logging)
+- Resend per-recipient email (individual failure logging)
+- Web push notifications (VAPID) on approve/reject
+- In-app notifications (toast + persistent `status_seen_at`)
+- In-app PDF download (persisted on approval, on-demand fallback)
+- Rejection card with admin_notes
+- Full PWA (manifest, sw.js, icons, offline shell)
+- Install App banner (Chrome/Edge/Android + iOS Safari fallback)
+- Apply for Passport external link
 
-### New in latest release
-- **Admin Dashboard pagination & expanded search** — search across 5 fields, page-size selector, Prev/Next navigation, live "Showing X–Y of N" summary. All client-side (~20 apps today; swap to server-side pagination when >500).
-- **Install App banner** (`/app/frontend/src/components/InstallAppBanner.js`) — catches
-  `beforeinstallprompt`, shows a bottom-right prompt, handles iOS manually with
-  Share → Add to Home Screen instructions. Dismissal persists 7 days via localStorage.
-- Push notifications (VAPID), in-app notifications, in-app PDF download, rejection card, full PWA (see previous releases).
+### New in latest release (refactor & scale)
+- **Backend refactor** — `server.py` now just wires routers; all logic lives in
+  `services/*` and `routes/*`. Clean separation by concern.
+- **Background PDF generation** — admin `PUT /admin/applications/{id}/status=approved`
+  returns immediately; PDF + email + push run as an async pipeline. On-demand
+  fallback in `visa-pdf` endpoint covers the race window.
+- **Server-side pagination** — `GET /api/admin/applications?page&page_size&status&search`
+  returns `{items, total, page, page_size, total_pages}`; Mongo regex search across
+  application_id, full_name, passport_number, email, nationality. Legacy flat-array
+  response preserved when `page` omitted (backwards compat).
+- **Email retry queue** — `db.email_retry_queue` collection. Non-permanent failures
+  auto-retry with exponential backoff (1m, 5m, 15m, 1h, 6h; max 5 attempts).
+  Permanent errors (Resend sandbox "verify a domain") are NOT retried.
+  Background worker polls every 30s (started on FastAPI `startup` event).
 
 ## Known Limitation — Resend Sandbox
-- `SENDER_EMAIL=onboarding@resend.dev` (no verified domain)
-- Resend only delivers to `ftareen@dohacollege.com.qa`; other recipients get
-  "You can only send testing emails to your own email address..."
-- Backend logs each failure individually; **in-app notifications + PDF download
-  + push notifications are the primary delivery channel right now.**
-- To enable email for everyone: verify a real domain at https://resend.com/domains,
-  update `SENDER_EMAIL` in `/app/backend/.env`, restart backend.
+- Current key only delivers to `ftareen@dohacollege.com.qa`.
+- The retry queue correctly classifies this as permanent and skips it (no spam).
+- To fix: verify a domain at https://resend.com/domains; update `SENDER_EMAIL`.
 
 ## Backlog
-- P2: Refactor `server.py` — split OpenAI + Resend + PDF into service modules
-- P2: Move OpenAI PDF generation off the admin status PUT path into a background task
-- P2: Server-side pagination once application count crosses ~500
-- P3: Email retry queue for transient Resend failures
-
-## Key Files
-- `/app/backend/server.py`
-- `/app/backend/tests/test_push_pdf_notifications.py` (17 tests, all passing)
-- `/app/frontend/src/pages/Dashboard.js`
-- `/app/frontend/src/pages/ApplicationDetails.js`
-- `/app/frontend/src/lib/pushNotifications.js`
-- `/app/frontend/public/sw.js`
-- `/app/frontend/public/manifest.json`
-- `/app/frontend/public/index.html`
+- P2: Swap legacy flat-array admin endpoint for pagination-only once frontend
+  is fully migrated (already migrated in `AdminDashboard.js`; pytest still covers legacy).
+- P3: Metrics endpoint surfacing retry-queue depth, failed counts.
+- P3: Rate-limit admin status updates so the background pipeline doesn't pile up.
