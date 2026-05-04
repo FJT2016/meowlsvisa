@@ -11,6 +11,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import AdminReview from './pages/AdminReview';
 import AuthCallback from './components/AuthCallback';
 import ProtectedRoute from './components/ProtectedRoute';
+import InstallAppBanner from './components/InstallAppBanner';
 import { Toaster } from './components/ui/sonner';
 import './App.css';
 
@@ -60,6 +61,7 @@ function AppRouter() {
         } />
       </Routes>
       <Toaster position="top-right" />
+      <InstallAppBanner />
     </>
   );
 }

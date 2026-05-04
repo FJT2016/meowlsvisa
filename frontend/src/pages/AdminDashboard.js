@@ -1,28 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { FileText, Users, Clock, CheckCircle, XCircle, Search } from 'lucide-react';
+import { FileText, Users, Clock, CheckCircle, XCircle, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import { toast } from 'sonner';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
 
 const AdminDashboard = () => {
   const [user, setUser] = useState(null);
   const [applications, setApplications] = useState([]);
-  const [filteredApps, setFilteredApps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
     fetchUser();
     fetchApplications();
   }, []);
 
+  // Reset to page 1 whenever filters change
   useEffect(() => {
-    filterApplications();
-  }, [searchTerm, statusFilter, applications]);
+    setPage(1);
+  }, [searchTerm, statusFilter, pageSize]);
 
   const fetchUser = async () => {
     try {
@@ -46,7 +49,6 @@ const AdminDashboard = () => {
       if (response.ok) {
         const data = await response.json();
         setApplications(data);
-        setFilteredApps(data);
       }
     } catch (error) {
       console.error('Error fetching applications:', error);
@@ -56,22 +58,29 @@ const AdminDashboard = () => {
     }
   };
 
-  const filterApplications = () => {
-    let filtered = applications;
-
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(app => app.status === statusFilter);
-    }
-
-    if (searchTerm) {
-      filtered = filtered.filter(app =>
-        app.application_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        app.personal_info.full_name.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredApps = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    return applications.filter((app) => {
+      if (statusFilter !== 'all' && app.status !== statusFilter) return false;
+      if (!term) return true;
+      return (
+        app.application_id.toLowerCase().includes(term) ||
+        app.personal_info?.full_name?.toLowerCase().includes(term) ||
+        app.personal_info?.passport_number?.toLowerCase().includes(term) ||
+        app.personal_info?.email?.toLowerCase().includes(term) ||
+        app.personal_info?.nationality?.toLowerCase().includes(term)
       );
-    }
+    });
+  }, [applications, searchTerm, statusFilter]);
 
-    setFilteredApps(filtered);
-  };
+  const totalPages = Math.max(1, Math.ceil(filteredApps.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedApps = filteredApps.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize
+  );
+  const showingFrom = filteredApps.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const showingTo = Math.min(currentPage * pageSize, filteredApps.length);
 
   const stats = [
     {
@@ -151,7 +160,7 @@ const AdminDashboard = () => {
                 <Search className="absolute left-3 top-3 h-5 w-5 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Search by ID or name..."
+                  placeholder="Search by ID, name, passport, email, nationality..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-10 pr-4 py-3 border border-slate-300 rounded-md focus:ring-2 focus:ring-slate-900 focus:border-transparent"
@@ -172,6 +181,18 @@ const AdminDashboard = () => {
                 <option value="under-review">Under Review</option>
                 <option value="approved">Approved</option>
                 <option value="rejected">Rejected</option>
+              </select>
+            </div>
+            <div>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="w-full md:w-36 px-4 py-3 border border-slate-300 rounded-md focus:ring-2 focus:ring-slate-900 focus:border-transparent"
+                data-testid="page-size-select"
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>{n} / page</option>
+                ))}
               </select>
             </div>
           </div>
@@ -211,7 +232,7 @@ const AdminDashboard = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {filteredApps.map((app, index) => (
+                  {pagedApps.map((app, index) => (
                     <tr key={app.application_id} className="hover:bg-slate-50 transition-colors" data-testid={`admin-app-row-${index}`}>
                       <td className="px-6 py-4">
                         <span className="text-sm font-mono text-slate-900">{app.application_id}</span>
@@ -243,6 +264,43 @@ const AdminDashboard = () => {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {!loading && filteredApps.length > 0 && (
+            <div
+              className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-5 border-t border-slate-200 mt-5"
+              data-testid="admin-pagination"
+            >
+              <p className="text-sm text-slate-600" data-testid="pagination-summary">
+                Showing <span className="font-semibold text-slate-900">{showingFrom}</span>–
+                <span className="font-semibold text-slate-900">{showingTo}</span> of{' '}
+                <span className="font-semibold text-slate-900">{filteredApps.length}</span> applications
+              </p>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="flex items-center space-x-1 px-3 py-2 text-sm border border-slate-300 rounded-md hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  data-testid="pagination-prev"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  <span>Prev</span>
+                </button>
+                <span className="px-3 py-2 text-sm text-slate-600" data-testid="pagination-page-info">
+                  Page <span className="font-semibold text-slate-900">{currentPage}</span> of{' '}
+                  <span className="font-semibold text-slate-900">{totalPages}</span>
+                </span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="flex items-center space-x-1 px-3 py-2 text-sm border border-slate-300 rounded-md hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  data-testid="pagination-next"
+                >
+                  <span>Next</span>
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
             </div>
           )}
         </div>

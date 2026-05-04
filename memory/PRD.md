@@ -25,26 +25,19 @@ Visa application for fake country "Meowls" similar to India e-visa:
 5. M Mehdi — mmehdi@dohacollege.com.qa
 6. AD Faheem — adfaheem@dohacollege.com.qa
 
-## Implemented (as of May 3, 2026)
+## Implemented (as of May 4, 2026)
 ### Core flows
 - Full visa apply flow (5 steps)
-- Admin dashboard + review (approve / reject with admin_notes)
+- Admin dashboard + review (approve / reject with admin_notes) — now with **search across ID / name / passport / email / nationality + status filter + paginated table (10 / 25 / 50 / 100 per page)**
 - AI-generated visa PDF with applicant photo embedded
 - Resend per-recipient email (applicant + every admin, with individual failure logging)
 
 ### New in latest release
-- **Push notifications** — `/api/push/vapid-public-key`, `/api/push/subscribe`,
-  `/api/push/unsubscribe`; VAPID keys stored in `.env`; push sent on status change.
-- **In-app notifications** — `/api/notifications` (unread approved/rejected),
-  `/api/notifications/{id}/read`; toast shown on Dashboard mount.
-- **In-app PDF download** — `/api/applications/{id}/visa-pdf` returns the PDF for
-  the owner/admin; PDF is persisted (base64) when admin approves, generated on-demand
-  if missing (for pre-existing approved apps).
-- **Rejection in-app card** — red card on Application Details page with the
-  admin's reason.
-- **Full PWA** — manifest.json, icons (192/512 + Apple), service worker at `/sw.js`,
-  push + notificationclick handlers, offline app-shell cache.
-- **Apply for Passport** button on Home + Navbar → external Base44 passport app.
+- **Admin Dashboard pagination & expanded search** — search across 5 fields, page-size selector, Prev/Next navigation, live "Showing X–Y of N" summary. All client-side (~20 apps today; swap to server-side pagination when >500).
+- **Install App banner** (`/app/frontend/src/components/InstallAppBanner.js`) — catches
+  `beforeinstallprompt`, shows a bottom-right prompt, handles iOS manually with
+  Share → Add to Home Screen instructions. Dismissal persists 7 days via localStorage.
+- Push notifications (VAPID), in-app notifications, in-app PDF download, rejection card, full PWA (see previous releases).
 
 ## Known Limitation — Resend Sandbox
 - `SENDER_EMAIL=onboarding@resend.dev` (no verified domain)
@@ -56,9 +49,9 @@ Visa application for fake country "Meowls" similar to India e-visa:
   update `SENDER_EMAIL` in `/app/backend/.env`, restart backend.
 
 ## Backlog
-- P1: Admin Dashboard pagination / search
 - P2: Refactor `server.py` — split OpenAI + Resend + PDF into service modules
 - P2: Move OpenAI PDF generation off the admin status PUT path into a background task
+- P2: Server-side pagination once application count crosses ~500
 - P3: Email retry queue for transient Resend failures
 
 ## Key Files
